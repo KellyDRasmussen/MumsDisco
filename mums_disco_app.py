@@ -291,6 +291,7 @@ def search_ytmusic_song(song_name: str, yt: YTMusic) -> Optional[Dict]:
     try:
         results = yt.search(song_name, filter="songs", limit=1)
         if not results:
+            st.error(f"DEBUG: search returned empty results for '{song_name}'")
             return None
         track = results[0]
         thumbnails = track.get("thumbnails", [])
@@ -307,7 +308,7 @@ def search_ytmusic_song(song_name: str, yt: YTMusic) -> Optional[Dict]:
             "spotify_url": f"https://music.youtube.com/watch?v={video_id}",
         }
     except Exception as e:
-        st.error(f"YouTube Music search error: {e}")
+        st.error(f"DEBUG: YouTube Music search error: {type(e).__name__}: {e}")
         return None
 
 # Database functions
