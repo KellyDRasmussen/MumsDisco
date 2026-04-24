@@ -1,131 +1,82 @@
 # 🎵 Mum's Disco
 
-A Streamlit app for crowdsourcing playlists! Users can search for songs via Spotify API, confirm their selection, and add them to a shared playlist that's stored locally and backed up to Google Sheets.
+Quarterly crowdsourced playlist app. Party guests add songs via a Streamlit web app, which backs them up to Google Sheets. A separate script on your laptop watches the Sheet and adds new songs to your YouTube Music playlist in real time.
 
-## Features
+---
 
-- **Song Search**: Search for songs using Spotify's Web API
-- **Duplicate Prevention**: Case-insensitive duplicate checking
-- **Real-time Playlist**: All users see the same live playlist
-- **Audio Preview**: Listen to song previews when available
-- **Backup**: Automatic backup to Google Sheets
-- **Export**: Download playlist as CSV
+## How it works
 
-## Setup
+```
+Guest types song → Streamlit app (iTunes search) → Google Sheets
+                                                         ↓
+                              live_playlist_sync.py watches Sheet
+                                                         ↓
+                                          YouTube Music playlist
+```
 
-### 1. Install Dependencies
+---
+
+## Before each event
+
+### 1. Refresh the YouTube Music auth
+
+The `browser.json` cookies in the `playlist getter` folder expire after a few weeks. Refresh them before each event:
+
+1. Go to [music.youtube.com](https://music.youtube.com) and make sure you're logged in
+2. Open DevTools (F12) → Network tab → filter by `browse`
+3. Click **Library** in the sidebar to trigger a request
+4. Click the `browse` request → Headers tab → Request Headers
+5. Copy all the request headers
+6. Open `playlist getter/browser.json` and replace the values for:
+   - `authorization`
+   - `cookie`
+7. Make sure `accept-encoding` stays as `gzip, deflate` (not `br` or `zstd`)
+
+### 2. Clear the playlist app database
+
+The Streamlit app stores songs in a `playlist.json` TinyDB file on Streamlit Cloud. If you want a fresh playlist each event, go to your Streamlit Cloud dashboard, find the app, and delete `playlist.json` from the file manager — or just leave it and it'll keep accumulating across events.
+
+### 3. Share the app link with guests
+
+Your Streamlit app URL is the link guests use to add songs. Share it however you like (QR code works well).
+
+---
+
+## On the night
+
+Run this on your laptop to sync songs from the Sheet to YouTube Music in real time:
 
 ```bash
-pip install -r requirements.txt
+cd "playlist getter"
+python live_playlist_sync.py
 ```
 
-### 2. Set up Spotify API
+It checks for new songs every 30 seconds and adds them automatically. Leave it running in the background. Press `Ctrl+C` to stop.
 
-1. Go to [Spotify Developer Dashboard](https://developer.spotify.com/dashboard)
-2. Create a new app
-3. Note your `Client ID` and `Client Secret`
+The YouTube Music playlist it syncs to:
+`https://music.youtube.com/playlist?list=PLFINE5yyf5zKXCoFvhNoTrrEwuBC9MlsP`
 
-### 3. Set up Google Sheets API
+---
 
-1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Create a new project or select existing one
-3. Enable the Google Sheets API
-4. Create a Service Account:
-   - Go to "Credentials" → "Create Credentials" → "Service Account"
-   - Download the JSON key file
-5. Share your Google Sheet with the service account email
+## Repos
 
-### 4. Configure Secrets
+| Folder | What it does |
+|--------|-------------|
+| `MumsDisco/` | Streamlit app — guests use this to add songs |
+| `playlist getter/` | Scripts that sync Google Sheets → YouTube Music |
 
-Create `.streamlit/secrets.toml` with your credentials:
-
-```toml
-[spotify]
-client_id = "your_spotify_client_id"
-client_secret = "your_spotify_client_secret"
-
-[gspread]
-type = "service_account"
-project_id = "your_project_id"
-private_key_id = "your_private_key_id" 
-private_key = "-----BEGIN PRIVATE KEY-----\nyour_private_key\n-----END PRIVATE KEY-----\n"
-client_email = "your_service_account_email"
-client_id = "your_client_id"
-```
-
-**Note**: For the `private_key`, make sure to include the full key with newlines (`\n`) as shown above.
-
-## Running the App
-
-```bash
-streamlit run mums_disco_app.py
-```
-
-The app will be available at `http://localhost:8501`
-
-## How It Works
-
-1. **Search**: Users type in a song name
-2. **Find**: App searches Spotify for the closest match
-3. **Confirm**: User sees the result (title, artist, album art, preview) and confirms
-4. **Save**: Confirmed songs are saved to local TinyDB (`playlist.json`)
-5. **Backup**: Songs are automatically backed up to Google Sheets
-6. **Display**: The full playlist is shown to all users, newest first
-
-## File Structure
-
-```
-mums-disco/
-├── streamlit_app.py      # Main application
-├── requirements.txt      # Python dependencies
-├── README.md            # This file
-├── .streamlit/
-│   └── secrets.toml     # API credentials (create this)
-└── playlist.json        # Local database (auto-created)
-```
-
-## Features in Detail
-
-### Duplicate Prevention
-- Case-insensitive checking for song title + artist
-- Prevents the same song from being added twice
-
-### Spotify Integration
-- Uses Client Credentials Flow (no user login required)
-- Searches for exact matches
-- Shows album artwork and audio previews
-- Provides direct Spotify links
-
-### Data Persistence
-- **Local**: TinyDB stores playlist in `playlist.json`
-- **Cloud**: Google Sheets backup for redundancy
-- **Export**: CSV download option
-
-### User Experience
-- Clean, responsive interface
-- Real-time updates across all users
-- Audio previews for song confirmation
-- Newest songs displayed first
+---
 
 ## Troubleshooting
 
-### Spotify API Issues
-- Verify your Client ID and Client Secret
-- Make sure your Spotify app is not in development mode restrictions
+**"No songs found" in the Streamlit app**
+The iTunes search API is used — no API key needed. If this breaks, check that the app deployed correctly on Streamlit Cloud and that there are no errors in the logs.
 
-### Google Sheets Issues
-- Ensure the service account email has access to your spreadsheet
-- Check that the Google Sheets API is enabled in your project
-- Verify the private key format in secrets.toml
+**YouTube Music sync not adding songs**
+Almost certainly expired cookies. Redo step 1 above (refresh `browser.json`). Make sure `accept-encoding` is `gzip, deflate` — if you paste raw browser headers it'll include `br` which breaks things.
 
-### Database Issues
-- The `playlist.json` file is created automatically
-- If corrupted, delete it and restart the app
+**Songs not appearing in Google Sheets**
+Check the gspread credentials in Streamlit Cloud secrets are still valid. The service account is `mums-disco-service@mums-disco.iam.gserviceaccount.com` and the sheet must be shared with that email.
 
-## Contributing
-
-Feel free to submit issues and pull requests!
-
-## License
-
-This project is open source and available under the MIT License.
+**Streamlit app showing old songs from last event**
+Delete `playlist.json` via the Streamlit Cloud file manager and restart the app.
