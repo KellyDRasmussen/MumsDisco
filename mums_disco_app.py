@@ -306,7 +306,7 @@ def search_spotify_song(song_name: str, token: str) -> Optional[Dict]:
     """Search for a song on Spotify"""
     if not token:
         return None
-        
+
     url = "https://api.spotify.com/v1/search"
     headers = {"Authorization": f"Bearer {token}"}
     params = {
@@ -314,9 +314,9 @@ def search_spotify_song(song_name: str, token: str) -> Optional[Dict]:
         "type": "track",
         "limit": 1
     }
-    
+
     response = requests.get(url, headers=headers, params=params)
-    
+
     if response.status_code == 200:
         data = response.json()
         if data["tracks"]["items"]:
@@ -329,6 +329,9 @@ def search_spotify_song(song_name: str, token: str) -> Optional[Dict]:
                 "spotify_url": track["external_urls"]["spotify"],
                 "preview_url": track["preview_url"]
             }
+        return None
+
+    st.error(f"Spotify API error {response.status_code}: {response.text[:200]}")
     return None
 
 # Database functions
