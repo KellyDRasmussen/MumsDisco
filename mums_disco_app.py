@@ -1,8 +1,8 @@
 import streamlit as st
 import requests
-import base64
 import json
 import gspread
+from ytmusicapi import YTMusic
 from tinydb import TinyDB, Query
 from datetime import datetime
 import pandas as pd
@@ -18,7 +18,7 @@ LANGUAGES = {
         "song_placeholder": "Enter a song title...",
         "song_help": "Type the name of a song you'd like to add to the playlist",
         "search_button": "🔍 Search",
-        "searching": "Searching Spotify...",
+        "searching": "Searching YouTube Music...",
         "found_song": "Found Song:",
         "by_artist": "by",
         "album": "Album:",
@@ -34,13 +34,13 @@ LANGUAGES = {
         "export_playlist": "Export Playlist",
         "download_csv": "📥 Download as CSV",
         "no_songs_yet": "No songs in the playlist yet. Be the first to add one! 🎵",
-        "footer": "Made with ❤️ for Mum's Disco | Supported by GENLYD | Powered by Spotify",
+        "footer": "Made with ❤️ for Mum's Disco | Supported by GENLYD | Powered by YouTube Music",
         "listen": "🎧 Listen",
         "added": "Added",
         "title_col": "Title",
         "artist_col": "Artist",
         "album_col": "Album",
-        "spotify_col": "Spotify",
+        "spotify_col": "YouTube Music",
         "language_label": "🌍 Language",
         "view_playlist": "📋 View Playlist",
         "add_new_song": "➕ Add New Song",
@@ -56,7 +56,7 @@ LANGUAGES = {
         "song_placeholder": "Indtast en sangtitel...",
         "song_help": "Skriv navnet på en sang, du gerne vil tilføje til playlisten",
         "search_button": "🔍 Søg",
-        "searching": "Søger på Spotify...",
+        "searching": "Søger på YouTube Music...",
         "found_song": "Fundet Sang:",
         "by_artist": "af",
         "album": "Album:",
@@ -72,13 +72,13 @@ LANGUAGES = {
         "export_playlist": "Eksporter Playliste",
         "download_csv": "📥 Download som CSV",
         "no_songs_yet": "Ingen sange i playlisten endnu. Vær den første til at tilføje en! 🎵",
-        "footer": "Lavet med ❤️ til Mors Disko | Støttet af GENLYD | Drevet af Spotify",
+        "footer": "Lavet med ❤️ til Mors Disko | Støttet af GENLYD | Drevet af YouTube Music",
         "listen": "🎧 Lyt",
         "added": "Tilføjet",
         "title_col": "Titel",
         "artist_col": "Kunstner",
         "album_col": "Album",
-        "spotify_col": "Spotify",
+        "spotify_col": "YouTube Music",
         "language_label": "🌍 Sprog",
         "view_playlist": "📋 Se Playliste",
         "add_new_song": "➕ Tilføj Ny Sang",
@@ -278,61 +278,34 @@ def init_gspread():
         st.error(f"Failed to initialize Google Sheets: {e}")
         return None
 
-# Spotify API functions
-@st.cache_data(ttl=3600)
-def get_spotify_token():
-    """Get Spotify access token using Client Credentials Flow"""
-    client_id = st.secrets["spotify"]["client_id"]
-    client_secret = st.secrets["spotify"]["client_secret"]
-    
-    credentials = f"{client_id}:{client_secret}"
-    encoded_credentials = base64.b64encode(credentials.encode()).decode()
-    
-    url = "https://accounts.spotify.com/api/token"
-    headers = {
-        "Authorization": f"Basic {encoded_credentials}",
-        "Content-Type": "application/x-www-form-urlencoded"
-    }
-    data = {"grant_type": "client_credentials"}
-    
-    response = requests.post(url, headers=headers, data=data)
-    
-    if response.status_code == 200:
-        return response.json()["access_token"]
-    else:
+# YouTube Music API functions
+@st.cache_resource
+def init_ytmusic():
+    return YTMusic()
+
+def search_ytmusic_song(song_name: str, yt: YTMusic) -> Optional[Dict]:
+    """Search for a song on YouTube Music"""
+    try:
+        results = yt.search(song_name, filter="songs", limit=1)
+        if not results:
+            return None
+        track = results[0]
+        thumbnails = track.get("thumbnails", [])
+        image_url = thumbnails[-1]["url"] if thumbnails else None
+        artists = track.get("artists", [])
+        artist_str = ", ".join(a["name"] for a in artists)
+        album = track.get("album") or {}
+        video_id = track.get("videoId", "")
+        return {
+            "title": track.get("title", ""),
+            "artist": artist_str,
+            "album": album.get("name", ""),
+            "image_url": image_url,
+            "spotify_url": f"https://music.youtube.com/watch?v={video_id}",
+        }
+    except Exception as e:
+        st.error(f"YouTube Music search error: {e}")
         return None
-
-def search_spotify_song(song_name: str, token: str) -> Optional[Dict]:
-    """Search for a song on Spotify"""
-    if not token:
-        return None
-
-    url = "https://api.spotify.com/v1/search"
-    headers = {"Authorization": f"Bearer {token}"}
-    params = {
-        "q": song_name,
-        "type": "track",
-        "limit": 1
-    }
-
-    response = requests.get(url, headers=headers, params=params)
-
-    if response.status_code == 200:
-        data = response.json()
-        if data["tracks"]["items"]:
-            track = data["tracks"]["items"][0]
-            return {
-                "title": track["name"],
-                "artist": ", ".join([artist["name"] for artist in track["artists"]]),
-                "album": track["album"]["name"],
-                "image_url": track["album"]["images"][0]["url"] if track["album"]["images"] else None,
-                "spotify_url": track["external_urls"]["spotify"],
-                "preview_url": track["preview_url"]
-            }
-        return None
-
-    st.error(f"Spotify API error {response.status_code}: {response.text[:200]}")
-    return None
 
 # Database functions
 def song_exists(db: TinyDB, title: str, artist: str) -> bool:
@@ -377,7 +350,7 @@ def backup_to_sheets(gc, song_data: Dict):
         except gspread.SpreadsheetNotFound:
             spreadsheet = gc.create(sheet_name)
             sheet = spreadsheet.sheet1
-            sheet.append_row(["Title", "Artist", "Album", "Spotify URL", "Added At"])
+            sheet.append_row(["Title", "Artist", "Album", "YouTube Music URL", "Added At"])
         
         sheet.append_row([
             song_data["title"],
@@ -413,17 +386,13 @@ def render_mobile_layout(t, db, gc):
         
         if search_button and song_input.strip():
             with st.spinner(t["searching"]):
-                token = get_spotify_token()
-                if token:
-                    song_data = search_spotify_song(song_input.strip(), token)
-                    
-                    if song_data:
-                        st.session_state.found_song = song_data
-                        st.session_state.show_confirmation = True
-                    else:
-                        st.error(t["no_songs_found"])
+                yt = init_ytmusic()
+                song_data = search_ytmusic_song(song_input.strip(), yt)
+                if song_data:
+                    st.session_state.found_song = song_data
+                    st.session_state.show_confirmation = True
                 else:
-                    st.error(t["spotify_error"])
+                    st.error(t["no_songs_found"])
         
         if st.session_state.get("show_confirmation", False) and st.session_state.get("found_song"):
             song = st.session_state.found_song
@@ -445,9 +414,6 @@ def render_mobile_layout(t, db, gc):
                 st.markdown(f"_{song['album']}_")
             
             st.markdown('</div>', unsafe_allow_html=True)
-            
-            if song.get("preview_url"):
-                st.audio(song["preview_url"])
             
             col_yes, col_no = st.columns(2)
             
@@ -493,7 +459,7 @@ def render_mobile_layout(t, db, gc):
                         st.markdown(f"<small style='color: #6c757d;'>⏰ {added_time}</small>", unsafe_allow_html=True)
                     
                     with col2:
-                        st.markdown(f"<a href='{song['spotify_url']}' target='_blank' style='text-decoration: none;'><button style='background-color: #1DB954; color: white; border: none; padding: 8px 12px; border-radius: 20px; font-weight: 600; cursor: pointer;'>{t['listen']}</button></a>", unsafe_allow_html=True)
+                        st.markdown(f"<a href='{song['spotify_url']}' target='_blank' style='text-decoration: none;'><button style='background-color: #FF0000; color: white; border: none; padding: 8px 12px; border-radius: 20px; font-weight: 600; cursor: pointer;'>{t['listen']}</button></a>", unsafe_allow_html=True)
                     
                     st.markdown('</div>', unsafe_allow_html=True)
             
@@ -538,17 +504,13 @@ def render_desktop_layout(t, db, gc):
         
         if search_button and song_input.strip():
             with st.spinner(t["searching"]):
-                token = get_spotify_token()
-                if token:
-                    song_data = search_spotify_song(song_input.strip(), token)
-                    
-                    if song_data:
-                        st.session_state.found_song = song_data
-                        st.session_state.show_confirmation = True
-                    else:
-                        st.error(t["no_songs_found"])
+                yt = init_ytmusic()
+                song_data = search_ytmusic_song(song_input.strip(), yt)
+                if song_data:
+                    st.session_state.found_song = song_data
+                    st.session_state.show_confirmation = True
                 else:
-                    st.error(t["spotify_error"])
+                    st.error(t["no_songs_found"])
         
         if st.session_state.get("show_confirmation", False) and st.session_state.get("found_song"):
             song = st.session_state.found_song
@@ -561,9 +523,6 @@ def render_desktop_layout(t, db, gc):
             st.markdown(f"**{song['title']}**")
             st.markdown(f"{t['by_artist']} {song['artist']}")
             st.markdown(f"{t['album']} {song['album']}")
-            
-            if song.get("preview_url"):
-                st.audio(song["preview_url"])
             
             col_yes, col_no = st.columns(2)
             
