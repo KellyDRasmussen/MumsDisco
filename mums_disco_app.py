@@ -2,7 +2,6 @@ import streamlit as st
 import requests
 import json
 import gspread
-from ytmusicapi import YTMusic
 from tinydb import TinyDB, Query
 from datetime import datetime
 import pandas as pd
@@ -18,7 +17,7 @@ LANGUAGES = {
         "song_placeholder": "Enter a song title...",
         "song_help": "Type the name of a song you'd like to add to the playlist",
         "search_button": "🔍 Search",
-        "searching": "Searching YouTube Music...",
+        "searching": "Searching...",
         "found_song": "Found Song:",
         "by_artist": "by",
         "album": "Album:",
@@ -34,7 +33,7 @@ LANGUAGES = {
         "export_playlist": "Export Playlist",
         "download_csv": "📥 Download as CSV",
         "no_songs_yet": "No songs in the playlist yet. Be the first to add one! 🎵",
-        "footer": "Made with ❤️ for Mum's Disco | Supported by GENLYD | Powered by YouTube Music",
+        "footer": "Made with ❤️ for Mum's Disco | Supported by GENLYD",
         "listen": "🎧 Listen",
         "added": "Added",
         "title_col": "Title",
@@ -56,7 +55,7 @@ LANGUAGES = {
         "song_placeholder": "Indtast en sangtitel...",
         "song_help": "Skriv navnet på en sang, du gerne vil tilføje til playlisten",
         "search_button": "🔍 Søg",
-        "searching": "Søger på YouTube Music...",
+        "searching": "Søger...",
         "found_song": "Fundet Sang:",
         "by_artist": "af",
         "album": "Album:",
@@ -72,7 +71,7 @@ LANGUAGES = {
         "export_playlist": "Eksporter Playliste",
         "download_csv": "📥 Download som CSV",
         "no_songs_yet": "Ingen sange i playlisten endnu. Vær den første til at tilføje en! 🎵",
-        "footer": "Lavet med ❤️ til Mors Disko | Støttet af GENLYD | Drevet af YouTube Music",
+        "footer": "Lavet med ❤️ til Mors Disko | Støttet af GENLYD",
         "listen": "🎧 Lyt",
         "added": "Tilføjet",
         "title_col": "Titel",
@@ -278,37 +277,31 @@ def init_gspread():
         st.error(f"Failed to initialize Google Sheets: {e}")
         return None
 
-# YouTube Music API functions
-@st.cache_resource
-def init_ytmusic():
-    import requests as _requests
-    session = _requests.Session()
-    session.headers.update({"accept-encoding": "gzip, deflate"})
-    return YTMusic(requests_session=session)
-
-def search_ytmusic_song(song_name: str, yt: YTMusic) -> Optional[Dict]:
-    """Search for a song on YouTube Music"""
+# iTunes Search API functions (free, no API key needed)
+def search_itunes_song(song_name: str) -> Optional[Dict]:
+    """Search for a song using the iTunes Search API"""
     try:
-        results = yt.search(song_name, filter="songs", limit=1)
-        if not results:
-            st.error(f"DEBUG: search returned empty results for '{song_name}'")
+        response = requests.get(
+            "https://itunes.apple.com/search",
+            params={"term": song_name, "entity": "song", "limit": 1}
+        )
+        if response.status_code != 200:
+            st.error(f"Search error {response.status_code}")
             return None
-        track = results[0]
-        thumbnails = track.get("thumbnails", [])
-        image_url = thumbnails[-1]["url"] if thumbnails else None
-        artists = track.get("artists", [])
-        artist_str = ", ".join(a["name"] for a in artists)
-        album = track.get("album") or {}
-        video_id = track.get("videoId", "")
+        data = response.json()
+        if not data["results"]:
+            return None
+        track = data["results"][0]
         return {
-            "title": track.get("title", ""),
-            "artist": artist_str,
-            "album": album.get("name", ""),
-            "image_url": image_url,
-            "spotify_url": f"https://music.youtube.com/watch?v={video_id}",
+            "title": track["trackName"],
+            "artist": track["artistName"],
+            "album": track["collectionName"],
+            "image_url": track["artworkUrl100"].replace("100x100", "300x300"),
+            "spotify_url": track["trackViewUrl"],
+            "preview_url": track.get("previewUrl"),
         }
     except Exception as e:
-        st.error(f"DEBUG: YouTube Music search error: {type(e).__name__}: {e}")
+        st.error(f"Search error: {e}")
         return None
 
 # Database functions
@@ -390,8 +383,7 @@ def render_mobile_layout(t, db, gc):
         
         if search_button and song_input.strip():
             with st.spinner(t["searching"]):
-                yt = init_ytmusic()
-                song_data = search_ytmusic_song(song_input.strip(), yt)
+                song_data = search_itunes_song(song_input.strip())
                 if song_data:
                     st.session_state.found_song = song_data
                     st.session_state.show_confirmation = True
@@ -419,6 +411,9 @@ def render_mobile_layout(t, db, gc):
             
             st.markdown('</div>', unsafe_allow_html=True)
             
+            if song.get("preview_url"):
+                st.audio(song["preview_url"])
+
             col_yes, col_no = st.columns(2)
             
             with col_yes:
@@ -508,8 +503,7 @@ def render_desktop_layout(t, db, gc):
         
         if search_button and song_input.strip():
             with st.spinner(t["searching"]):
-                yt = init_ytmusic()
-                song_data = search_ytmusic_song(song_input.strip(), yt)
+                song_data = search_itunes_song(song_input.strip())
                 if song_data:
                     st.session_state.found_song = song_data
                     st.session_state.show_confirmation = True
@@ -528,6 +522,9 @@ def render_desktop_layout(t, db, gc):
             st.markdown(f"{t['by_artist']} {song['artist']}")
             st.markdown(f"{t['album']} {song['album']}")
             
+            if song.get("preview_url"):
+                st.audio(song["preview_url"])
+
             col_yes, col_no = st.columns(2)
             
             with col_yes:
