@@ -281,7 +281,10 @@ def init_gspread():
 # YouTube Music API functions
 @st.cache_resource
 def init_ytmusic():
-    return YTMusic()
+    import requests as _requests
+    session = _requests.Session()
+    session.headers.update({"accept-encoding": "gzip, deflate"})
+    return YTMusic(requests_session=session)
 
 def search_ytmusic_song(song_name: str, yt: YTMusic) -> Optional[Dict]:
     """Search for a song on YouTube Music"""
